@@ -1,0 +1,45 @@
+name: Stock AI Workflow
+
+on:
+  schedule:
+    # 03:30 UTC is 09:00 AM IST (Morning Sync)
+    - cron: '30 3 * * *'
+    # 10:30 UTC is 04:00 PM IST (Evening Analysis)
+    - cron: '30 10 * * *'
+  workflow_dispatch: # Allows you to run it manually from GitHub UI
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Recreate credential files
+        run: |
+          echo "${{ secrets.GOOGLE_CREDENTIALS_BASE64 }}" | base64 -d > credentials.json
+          echo "${{ secrets.GOOGLE_TOKEN_BASE64 }}" | base64 -d > token.pickle
+
+      - name: Weekly Sync (Sundays)
+        if: github.event.schedule == '30 3 * * 0' || github.event_name == 'workflow_dispatch'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 trade_bot.py --sync
+
+      - name: Daily Analysis
+        if: github.event.schedule == '30 10 * * 1-5' || github.event_name == 'workflow_dispatch'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 trade_bot.py --analyze
