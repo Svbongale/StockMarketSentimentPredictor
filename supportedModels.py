@@ -1,6 +1,6 @@
 from google import genai
 
-client = genai.Client(api_key="AIzaSyBNMW9tBdq_ibiypvaBM_WUAbn2j_dYpqQ")
+client = genai.Client(api_key="<GEN_AI_API_KEY>")
 
 print("🔍 Listing available models for your account:")
 print("-" * 40)

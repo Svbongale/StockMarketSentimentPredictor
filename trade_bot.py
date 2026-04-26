@@ -10,11 +10,11 @@ from google.genai import types
 from googleapiclient.discovery import build
 
 # ==========================================
-# 1. YOUR CONFIGURATION (FILL THESE IN)
+# 1. CONFIGURATION (USING SECRETS)
 # ==========================================
-GEMINI_API_KEY = "AIzaSyBNMW9tBdq_ibiypvaBM_WUAbn2j_dYpqQ"
-TELEGRAM_TOKEN = "8670487384:AAFWRunc5zmWcCv9VWW90OH603vN73dcGZA"
-TELEGRAM_CHAT_ID = "@StockSentimentPrediction_bot"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # The 2026 model string you confirmed works
 MODEL_NAME = "gemini-3.1-flash-lite-preview"
@@ -42,7 +42,7 @@ def call_gemini_with_retry(prompt, model=MODEL_NAME, retries=3):
             )
         except Exception as e:
             if "429" in str(e):
-                wait_time = (i + 1) * 30  # Wait 30, 60, then 90 seconds
+                wait_time = (i + 1) * 30 
                 print(f"🚦 Rate limit hit. Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             else:
@@ -52,7 +52,7 @@ def call_gemini_with_retry(prompt, model=MODEL_NAME, retries=3):
 
 def get_calendar_service():
     if not os.path.exists('token.pickle'):
-        print("❌ Error: token.pickle not found. Run auth_calendar.py first.")
+        print("❌ Error: token.pickle not found. Ensure GitHub Secrets are correct.")
         sys.exit(1)
     with open('token.pickle', 'rb') as token:
         creds = pickle.load(token)
@@ -86,7 +86,6 @@ def send_alert(message):
 # ==========================================
 
 def sync_weekly_calendar():
-    """Step 1 & 2: Identifies upcoming results and puts them in iPhone Calendar."""
     print(f"🚀 Starting Weekly Scan for {datetime.date.today()}...")
     today = datetime.date.today()
     one_week_later = today + datetime.timedelta(days=7)
@@ -95,43 +94,36 @@ def sync_weekly_calendar():
         print(f"🔍 AI searching for {ticker}...")
         prompt = f"""
         Find the next quarterly earnings date and analyst EPS/Revenue projections for {ticker}.
-        Today's date is {today}.
+        Today is {today}.
         Return ONLY a JSON object: 
         {{"date": "YYYY-MM-DD", "projection": "Summary of expected EPS/Revenue", "in_window": true/false}}
-        Set 'in_window' to true ONLY if the date is between {today} and {one_week_later}.
         """
         
         response = call_gemini_with_retry(prompt)
         
         if response and response.text:
             try:
-                # Clean and Parse JSON
                 clean_txt = response.text.replace('```json', '').replace('```', '').strip()
                 data = json.loads(clean_txt)
                 
-                if data.get('in_window'):
+                # Check if it's in our 7-day window
+                e_date = datetime.datetime.strptime(data['date'], "%Y-%m-%d").date()
+                if today <= e_date <= one_week_later:
                     add_to_calendar(ticker, data['date'], data['projection'])
                 else:
                     print(f"ℹ️ {ticker} reports on {data['date']} (Not this week).")
             except Exception as e:
-                print(f"⚠️ Data parsing failed for {ticker}: {e}")
+                print(f"⚠️ Parsing failed for {ticker}: {e}")
         
-        # Mandatory gap to stay under free-tier search limits
-        print("⏳ Throttling for 20s...")
         time.sleep(20)
 
 def run_daily_analysis():
-    """Step 3, 4 & 5: Scans today's results and notifies via Telegram."""
-    print(f"🕒 Running Daily Sentiment Analysis for {datetime.date.today()}...")
+    print(f"🕒 Running Daily Sentiment Analysis...")
     
     for ticker in WATCHLIST:
-        print(f"🧐 Checking results for {ticker}...")
+        print(f"🧐 Checking {ticker}...")
         prompt = f"""
         Search for {ticker} quarterly earnings released today ({datetime.date.today()}).
-        If released:
-        1. Compare actual vs expectations.
-        2. Analyze guidance and market sentiment.
-        3. Decision: 'BUY' (very positive) or 'FLAG' (negative/neutral).
         Return ONLY JSON: 
         {{"released": true/false, "decision": "BUY/FLAG", "reason": "...", "confidence": 0-100}}
         """
@@ -146,16 +138,16 @@ def run_daily_analysis():
                 if res.get('released'):
                     if res['decision'] == "BUY":
                         msg = f"🚀 *BUY ALERT: {ticker}*\n\nReason: {res['reason']}\nConfidence: {res['confidence']}%"
-                        send_alert(msg)
-                        print(f"✅ Telegram alert sent for {ticker}")
                     else:
-                        with open("flagged_stocks.txt", "a") as f:
-                            f.write(f"{datetime.date.today()} | {ticker} | {res['reason']}\n")
-                        print(f"🚩 {ticker} flagged (Weak results).")
+                        # EASY FIX: Send a notification for 'Bad' results too
+                        msg = f"🚩 *FLAGGED: {ticker}*\n\nReason: {res['reason']}\nConfidence: {res['confidence']}%"
+                    
+                    send_alert(msg)
+                    print(f"✅ Notification sent for {ticker}")
                 else:
                     print(f"😴 No results found today for {ticker}.")
             except Exception as e:
-                print(f"⚠️ Analysis parsing failed for {ticker}: {e}")
+                print(f"⚠️ Analysis failed for {ticker}: {e}")
         
         time.sleep(20)
 
@@ -165,10 +157,7 @@ def run_daily_analysis():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("\n❌ MISSING ARGUMENT!")
-        print("Usage:")
-        print(" python3 trade_bot.py --sync     (Weekly: Update iPhone Calendar)")
-        print(" python3 trade_bot.py --analyze  (Daily: Get Buy Alerts)")
+        print("Usage: python3 trade_bot.py --sync OR --analyze")
     elif sys.argv[1] == "--sync":
         sync_weekly_calendar()
     elif sys.argv[1] == "--analyze":

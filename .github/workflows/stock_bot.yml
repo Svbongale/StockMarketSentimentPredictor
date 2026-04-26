@@ -2,44 +2,49 @@ name: Stock AI Workflow
 
 on:
   schedule:
-    # 03:30 UTC is 09:00 AM IST (Morning Sync)
-    - cron: '30 3 * * *'
-    # 10:30 UTC is 04:00 PM IST (Evening Analysis)
-    - cron: '30 10 * * *'
-  workflow_dispatch: # Allows you to run it manually from GitHub UI
+    # 03:30 UTC is 09:00 AM IST (Weekly Sync - Sundays)
+    - cron: '30 3 * * 0'
+    # 10:30 UTC is 04:00 PM IST (Daily Analysis - Mon to Fri)
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch: # Allows you to run it manually anytime from the GitHub "Actions" tab
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
+    # Global environment variables for all steps
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
     steps:
-      - name: Checkout code
+      - name: 1. Checkout repository code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 2. Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          cache: 'pip' # Speeds up future runs
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Recreate credential files
+      - name: 3. Install dependencies
         run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 4. Recreate credential files from Secrets
+        run: |
+          # Decodes the Base64 strings back into actual files for the script to use
           echo "${{ secrets.GOOGLE_CREDENTIALS_BASE64 }}" | base64 -d > credentials.json
           echo "${{ secrets.GOOGLE_TOKEN_BASE64 }}" | base64 -d > token.pickle
 
-      - name: Weekly Sync (Sundays)
+      - name: 5. Weekly Sync (Sunday or Manual)
+        # Runs on Sundays OR if you click 'Run Workflow' manually
         if: github.event.schedule == '30 3 * * 0' || github.event_name == 'workflow_dispatch'
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 trade_bot.py --sync
 
-      - name: Daily Analysis
+      - name: 6. Daily Analysis (Weekdays or Manual)
+        # Runs Mon-Fri OR if you click 'Run Workflow' manually
         if: github.event.schedule == '30 10 * * 1-5' || github.event_name == 'workflow_dispatch'
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 trade_bot.py --analyze
